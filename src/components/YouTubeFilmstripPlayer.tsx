@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Props = {
     videoSrc?: string;
@@ -8,10 +8,28 @@ type Props = {
      * (tSec) => `/api/thumb?sec=${Math.floor(tSec)}`
      */
     thumbnailUrlForTime?: (timeSec: number) => string;
+    selectedItem?: PlayerItem | null;
+    onDraftChange?: (draft: PlayerDraft) => void;
+    onAddItem?: (item: PlayerItem) => void;
 };
 
 const SAMPLE_VIDEO =
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+
+export type PlayerDraft = {
+    thumbnailTime: number | null;
+    thumbnailUrl?: string;
+    start: number;
+    end: number;
+};
+
+export type PlayerItem = {
+    id: string;
+    thumbnailUrl: string;
+    thumbnailTime: number;
+    start: number;
+    end: number;
+};
 
 function clamp(n: number, min: number, max: number) {
     return Math.max(min, Math.min(max, n));
@@ -73,6 +91,9 @@ export default function YouTubeFilmstripPlayer_Final({
     videoSrc = SAMPLE_VIDEO,
     poster,
     thumbnailUrlForTime,
+    selectedItem,
+    onDraftChange,
+    onAddItem,
 }: Props) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const barRef = useRef<HTMLDivElement | null>(null);
@@ -80,6 +101,11 @@ export default function YouTubeFilmstripPlayer_Final({
     const [duration, setDuration] = useState(0);
     const [current, setCurrent] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [playbackRate, setPlaybackRate] = useState(1);
+    const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+    const speedMenuRef = useRef<HTMLDivElement | null>(null);
+    const lastAppliedItemIdRef = useRef<string | null>(null);
+    const pendingSelectedItemRef = useRef<PlayerItem | null>(null);
 
     // filmstrip 모드(버튼/시크바 클릭으로만)
     const [filmOpen, setFilmOpen] = useState(false);
@@ -161,12 +187,15 @@ export default function YouTubeFilmstripPlayer_Final({
         return clamp(timeSec, activeRange.start, activeRange.end);
     }
 
-    function getThumbnail(timeSec: number) {
-        const bucket = Math.floor(timeSec);
-        return thumbnailUrlForTime
-            ? thumbnailUrlForTime(bucket)
-            : makeFakeThumbnailDataUrl(bucket);
-    }
+    const getThumbnail = useCallback(
+        (timeSec: number) => {
+            const bucket = Math.floor(timeSec);
+            return thumbnailUrlForTime
+                ? thumbnailUrlForTime(bucket)
+                : makeFakeThumbnailDataUrl(bucket);
+        },
+        [thumbnailUrlForTime]
+    );
 
     function setRangeStartSafe(timeSec: number) {
         const t = clamp(timeSec, 0, Math.max(0, duration - 0.001));
@@ -178,12 +207,12 @@ export default function YouTubeFilmstripPlayer_Final({
         setRangeEnd(Math.max(t, rangeStart));
     }
 
-    function seekTo(timeSec: number) {
+    const seekTo = useCallback((timeSec: number) => {
         const v = videoRef.current;
         if (!v) return;
         const d = duration || v.duration || 0;
         v.currentTime = clamp(timeSec, 0, Math.max(0, d - 0.001));
-    }
+    }, [duration]);
 
     function pauseVideo() {
         const v = videoRef.current;
@@ -196,6 +225,32 @@ export default function YouTubeFilmstripPlayer_Final({
         if (!v) return;
         v.play();
     }
+
+    function setPlaybackRateSafe(rate: number) {
+        const v = videoRef.current;
+        setPlaybackRate(rate);
+        if (v) v.playbackRate = rate;
+    }
+
+    const applySelectedItem = useCallback((item: PlayerItem) => {
+        const maxDuration = Math.max(0, (duration || videoRef.current?.duration || 0) - 0.001);
+        if (maxDuration <= 0) {
+            pendingSelectedItemRef.current = item;
+            return;
+        }
+        const start = clamp(Math.min(item.start, item.end), 0, maxDuration);
+        const end = clamp(Math.max(item.start, item.end), 0, maxDuration);
+        const thumb = clamp(item.thumbnailTime, 0, maxDuration);
+        setRangeStart(start);
+        setRangeEnd(end);
+        setSavedRange({ start, end });
+        setRangeMode(false);
+        setRangePlayActive(false);
+        setSelectedThumbnailTime(thumb);
+        setPreviewTime(thumb);
+        seekTo(thumb);
+        lastAppliedItemIdRef.current = item.id;
+    }, [duration, seekTo]);
 
     // filmstrip 열기/닫기
     function openFilmstrip(atTime?: number) {
@@ -277,7 +332,85 @@ export default function YouTubeFilmstripPlayer_Final({
         };
     }, [filmOpen, rangeEnd, rangePlayActive, activeRange]);
 
-    // ===== filmstrip 썸네일 리스트(현재 previewTime 기준) =====
+    useEffect(() => {
+        const v = videoRef.current;
+        if (!v) return;
+        v.playbackRate = playbackRate;
+    }, [playbackRate]);
+
+    useEffect(() => {
+        if (!selectedItem) return;
+        if (selectedItem.id === lastAppliedItemIdRef.current) return;
+        queueMicrotask(() => applySelectedItem(selectedItem));
+    }, [selectedItem, applySelectedItem]);
+
+    useEffect(() => {
+        if (!pendingSelectedItemRef.current) return;
+        if (duration <= 0) return;
+        queueMicrotask(() => {
+            if (!pendingSelectedItemRef.current) return;
+            applySelectedItem(pendingSelectedItemRef.current);
+            pendingSelectedItemRef.current = null;
+        });
+    }, [duration, applySelectedItem]);
+
+    useEffect(() => {
+        if (!speedMenuOpen) return;
+        function onDocMouseDown(e: MouseEvent) {
+            const target = e.target as Node | null;
+            if (!speedMenuRef.current || !target) return;
+            if (!speedMenuRef.current.contains(target)) {
+                setSpeedMenuOpen(false);
+            }
+        }
+        function onDocKeyDown(e: KeyboardEvent) {
+            if (e.key === "Escape") setSpeedMenuOpen(false);
+        }
+        document.addEventListener("mousedown", onDocMouseDown);
+        document.addEventListener("keydown", onDocKeyDown);
+        return () => {
+            document.removeEventListener("mousedown", onDocMouseDown);
+            document.removeEventListener("keydown", onDocKeyDown);
+        };
+    }, [speedMenuOpen]);
+
+    const playbackRates = useMemo(
+        () => [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4],
+        []
+    );
+
+    const addRange = savedRange ?? { start: rangeStart, end: rangeEnd };
+    const addStart = Math.min(addRange.start, addRange.end);
+    const addEnd = Math.max(addRange.start, addRange.end);
+
+    const draftThumbnailUrl = useMemo(() => {
+        if (selectedThumbnailTime == null) return undefined;
+        return getThumbnail(selectedThumbnailTime);
+    }, [selectedThumbnailTime, getThumbnail]);
+
+    const canAdd = selectedThumbnailTime != null && addEnd > addStart && !!draftThumbnailUrl;
+
+    useEffect(() => {
+        if (!onDraftChange) return;
+        onDraftChange({
+            start: addStart,
+            end: addEnd,
+            thumbnailTime: selectedThumbnailTime,
+            thumbnailUrl: draftThumbnailUrl,
+        });
+    }, [onDraftChange, addStart, addEnd, selectedThumbnailTime, draftThumbnailUrl]);
+
+    function onAddCurrentSelection() {
+        if (!onAddItem || !canAdd || selectedThumbnailTime == null || !draftThumbnailUrl) return;
+        onAddItem({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            thumbnailUrl: draftThumbnailUrl,
+            thumbnailTime: selectedThumbnailTime,
+            start: addStart,
+            end: addEnd,
+        });
+    }
+
     const filmTimes = useMemo(() => {
         const mid = Math.floor(filmCount / 2);
         const base = previewTime;
@@ -289,9 +422,6 @@ export default function YouTubeFilmstripPlayer_Final({
         return arr;
     }, [previewTime, duration, filmCount, filmStepSec]);
 
-    // ===== “유튜브스러운” 스냅 드래그 =====
-    // 칸 기준 px:
-    // - 실제로는 가운데가 더 크지만 “스냅 기준”은 사이드 thumbW+gap로 두면 감각이 안정적임
     const slotPx = thumbW + gap;
 
     function stepPreview(deltaSteps: number) {
@@ -580,45 +710,91 @@ export default function YouTubeFilmstripPlayer_Final({
                         <div style={{ ...styles.knob, left: `calc(${progressPct}% - 6px)` }} />
                     </div>
 
-                    <div style={styles.topRow}>
-                        <button
-                            style={styles.btn}
-                            onClick={() => (filmOpen ? closeFilmstrip() : openFilmstrip())}
-                        >
-                            {filmOpen ? "썸네일 닫기" : "썸네일 선택"}
-                        </button>
-                        <button
-                            style={{
+                    <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <button style={{
                                 ...styles.btn,
-                                ...(rangeMode && !isRangeDirty ? styles.btnDisabled : null),
-                            }}
-                            onClick={onRangeButtonClick}
-                            disabled={rangeMode && !isRangeDirty}
-                        >
-                            {rangeMode ? "구간 저장" : "구간 선택"}
-                        </button>
-                        {rangeMode && (
-                            <button style={styles.btn} onClick={onRangeCancelClick}>
-                                구간 선택 취소
+                                color: 'black',
+                            }} onClick={onPlayButtonClick}>
+                                {shouldReset ? "초기화" : isPlaying && !filmOpen ? "⏸" : "▶️"}
                             </button>
-                        )}
-
-                        <div style={styles.timeText}>
-                            {formatTime(current)} / {formatTime(duration)}
+                            <div style={styles.timeText}>
+                                {formatTime(current)} / {formatTime(duration)}
+                            </div>
                         </div>
-
-                        <div style={{ flex: 1 }} />
-
-                        <button style={styles.btn} onClick={onPlayButtonClick}>
-                            {shouldReset ? "초기화" : isPlaying && !filmOpen ? "⏸" : "▶️"}
-                        </button>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <div style={styles.speedWrap} ref={speedMenuRef}>
+                                <button
+                                    style={styles.speedBtn}
+                                    onClick={() => setSpeedMenuOpen((prev) => !prev)}
+                                    aria-haspopup="menu"
+                                    aria-expanded={speedMenuOpen}
+                                >
+                                    배속 {playbackRate}
+                                </button>
+                                {speedMenuOpen && (
+                                    <div style={styles.speedMenu} role="menu">
+                                        {playbackRates.map((rate) => {
+                                            const isActive = rate === playbackRate;
+                                            return (
+                                                <button
+                                                    key={rate}
+                                                    role="menuitemradio"
+                                                    aria-checked={isActive}
+                                                    style={{
+                                                        ...styles.speedMenuItem,
+                                                        ...(isActive ? styles.speedMenuItemActive : null),
+                                                    }}
+                                                    onClick={() => {
+                                                        setPlaybackRateSafe(rate);
+                                                        setSpeedMenuOpen(false);
+                                                    }}
+                                                >
+                                                    <span>{rate}x</span>
+                                                    {isActive && <span style={styles.speedCheck}>✓</span>}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
+
                 </div>
             </div>
 
             <div style={{
                 color: 'black'
             }}>
+                <button
+                    style={{
+                        ...styles.btn,
+                        color: 'black',
+                    }}
+                    onClick={() => (filmOpen ? closeFilmstrip() : openFilmstrip())}
+                >
+                    {filmOpen ? "썸네일 닫기" : "썸네일 선택"}
+                </button>
+                <button
+                    style={{
+                        ...styles.btn,
+                        ...(rangeMode && !isRangeDirty ? styles.btnDisabled : null),
+                        color: 'black',
+                    }}
+                    onClick={onRangeButtonClick}
+                    disabled={rangeMode && !isRangeDirty}
+                >
+                    {rangeMode ? "구간 저장" : "구간 선택"}
+                </button>
+                {rangeMode && (
+                    <button style={{
+                        ...styles.btn,
+                        color: 'black',
+                    }} onClick={onRangeCancelClick}>
+                        구간 선택 취소
+                    </button>
+                )}
                 {selectedThumbnailTime != null && (
                     <div style={styles.selectedThumbWrap}>
                         <img
@@ -657,6 +833,47 @@ export default function YouTubeFilmstripPlayer_Final({
                 >
                     구간재생 취소
                 </button>
+            </div>
+            <div style={styles.addSection}>
+                <div style={styles.addStep}>
+                    <div style={styles.addStepTitle}>Step 1. 구간 선택</div>
+                    <div style={styles.addStepBody}>
+                        {addEnd > addStart
+                            ? `${formatTime(addStart)} ~ ${formatTime(addEnd)}`
+                            : "구간을 선택하세요"}
+                    </div>
+                </div>
+                <div style={styles.addStep}>
+                    <div style={styles.addStepTitle}>Step 2. 썸네일 선택</div>
+                    <div style={styles.addStepBody}>
+                        {selectedThumbnailTime != null ? (
+                            <div style={styles.addThumbRow}>
+                                <img
+                                    src={draftThumbnailUrl}
+                                    alt=""
+                                    draggable={false}
+                                    style={styles.addThumbImg}
+                                />
+                                <div>{formatTime(selectedThumbnailTime)}</div>
+                            </div>
+                        ) : (
+                            "썸네일을 선택하세요"
+                        )}
+                    </div>
+                </div>
+                <div style={styles.addActions}>
+                    <button
+                        style={{
+                            ...styles.btn,
+                            ...(canAdd ? null : styles.btnDisabled),
+                            color: 'black',
+                        }}
+                        onClick={onAddCurrentSelection}
+                        disabled={!canAdd}
+                    >
+                        추가
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -697,7 +914,6 @@ const styles: Record<string, React.CSSProperties> = {
         display: "flex",
         alignItems: "center",
         gap: 10,
-        marginBottom: 8,
     },
     btn: {
         appearance: "none",
@@ -712,6 +928,101 @@ const styles: Record<string, React.CSSProperties> = {
     btnDisabled: {
         opacity: 0.5,
         cursor: "not-allowed",
+    },
+    addSection: {
+        marginTop: 16,
+        padding: 12,
+        borderRadius: 12,
+        border: "1px solid rgba(0,0,0,0.08)",
+        background: "#fff",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        color: "#111",
+    },
+    addStep: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        fontSize: 13,
+    },
+    addStepTitle: {
+        fontWeight: 600,
+    },
+    addStepBody: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+    },
+    addActions: {
+        display: "flex",
+        justifyContent: "flex-end",
+        marginTop: 4,
+    },
+    addThumbRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+    },
+    addThumbImg: {
+        width: 120,
+        height: "auto",
+        borderRadius: 8,
+        border: "1px solid rgba(0,0,0,0.08)",
+    },
+    speedWrap: {
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+    },
+    speedBtn: {
+        appearance: "none",
+        border: "none",
+        background: "rgba(255,255,255,0.12)",
+        color: "#fff",
+        borderRadius: 10,
+        padding: "6px 10px",
+        cursor: "pointer",
+        fontSize: 12,
+        letterSpacing: 0.1,
+    },
+    speedMenu: {
+        position: "absolute",
+        right: 0,
+        bottom: "calc(100% + 6px)",
+        minWidth: 120,
+        background: "rgba(20,20,20,0.98)",
+        border: "1px solid rgba(255,255,255,0.14)",
+        borderRadius: 10,
+        padding: 6,
+        boxShadow: "0 10px 22px rgba(0,0,0,0.45)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        zIndex: 5,
+    },
+    speedMenuItem: {
+        appearance: "none",
+        border: "none",
+        background: "transparent",
+        color: "rgba(255,255,255,0.9)",
+        textAlign: "left",
+        padding: "6px 8px",
+        borderRadius: 8,
+        cursor: "pointer",
+        fontSize: 12,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+    },
+    speedMenuItemActive: {
+        background: "rgba(255,255,255,0.12)",
+        color: "#fff",
+    },
+    speedCheck: {
+        fontSize: 12,
+        color: "#fff",
     },
     timeText: {
         fontSize: 12,
