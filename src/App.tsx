@@ -1,91 +1,49 @@
 import { useMemo, useState } from "react"
 import YouTubeFilmstripPlayer from "./components/YouTubeFilmstripPlayer"
-import type { PlayerDraft, PlayerItem } from "./components/YouTubeFilmstripPlayer"
+import type { PlayerItem } from "./components/YouTubeFilmstripPlayer"
 
-type ListItem = PlayerItem & {
-  pinned?: boolean
-}
+type ListItem = PlayerItem
 
 function App() {
   const [items, setItems] = useState<ListItem[]>([])
-  const [draft, setDraft] = useState<PlayerDraft>({
-    thumbnailTime: null,
-    start: 0,
-    end: 0,
-  })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [resetDraftToken, setResetDraftToken] = useState(0)
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
     [items, selectedId]
   )
 
-  const canAddDraft =
-    draft.thumbnailTime != null &&
-    !!draft.thumbnailUrl &&
-    draft.end > draft.start
-
-  function handleAddFromDraft() {
-    if (!canAddDraft || draft.thumbnailTime == null || !draft.thumbnailUrl) return
-    const item: ListItem = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      thumbnailUrl: draft.thumbnailUrl,
-      thumbnailTime: draft.thumbnailTime,
-      start: draft.start,
-      end: draft.end,
-      pinned: false,
-    }
-    setItems((prev) => [...prev, item])
-    setSelectedId(item.id)
+  function handleResetDraft() {
+    setResetDraftToken((prev) => prev + 1)
   }
 
   function handleAddItem(item: PlayerItem) {
-    const next: ListItem = { ...item, pinned: false }
+    const next: ListItem = { ...item }
     setItems((prev) => [...prev, next])
     setSelectedId(next.id)
   }
 
-  function togglePin(itemId: string) {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, pinned: !item.pinned } : item
-      )
-    )
+  function removeItem(itemId: string) {
+    setItems((prev) => prev.filter((item) => item.id !== itemId))
+    setSelectedId((prev) => (prev === itemId ? null : prev))
   }
 
-  function reorderWithPinned(list: ListItem[], fromId: string, toId: string) {
+  function reorderItems(list: ListItem[], fromId: string, toId: string) {
     if (fromId === toId) return list
     const fromIndex = list.findIndex((item) => item.id === fromId)
     const toIndex = list.findIndex((item) => item.id === toId)
     if (fromIndex < 0 || toIndex < 0) return list
-    if (list[fromIndex].pinned || list[toIndex].pinned) return list
-
-    const unpinned = list.filter((item) => !item.pinned)
-    const fromUnpinnedIndex = unpinned.findIndex((item) => item.id === fromId)
-    const toUnpinnedIndex = unpinned.findIndex((item) => item.id === toId)
-    if (fromUnpinnedIndex < 0 || toUnpinnedIndex < 0) return list
-
-    const moving = unpinned[fromUnpinnedIndex]
-    unpinned.splice(fromUnpinnedIndex, 1)
-    unpinned.splice(toUnpinnedIndex, 0, moving)
-
-    const pinnedIndices = new Set(
-      list.map((item, index) => (item.pinned ? index : -1)).filter((v) => v >= 0)
-    )
-
-    let upIdx = 0
-    return list.map((item, index) => {
-      if (pinnedIndices.has(index)) return item
-      const nextItem = unpinned[upIdx]
-      upIdx += 1
-      return nextItem
-    })
+    const next = [...list]
+    const [moving] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moving)
+    return next
   }
 
   function handleDrop(targetId: string) {
     if (!draggingId) return
-    setItems((prev) => reorderWithPinned(prev, draggingId, targetId))
+    setItems((prev) => reorderItems(prev, draggingId, targetId))
     setDraggingId(null)
   }
 
@@ -95,8 +53,8 @@ function App() {
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
           <YouTubeFilmstripPlayer
             selectedItem={selectedItem}
-            onDraftChange={setDraft}
             onAddItem={handleAddItem}
+            resetDraftToken={resetDraftToken}
           />
         </div>
         <div >
@@ -116,13 +74,11 @@ function App() {
               )}
               {items.map((item) => {
                 const isSelected = item.id === selectedId
-                const isPinned = !!item.pinned
                 return (
                   <div
                     key={item.id}
-                    draggable={!isPinned}
+                    draggable
                     onDragStart={(e) => {
-                      if (isPinned) return
                       e.dataTransfer.effectAllowed = "move"
                       e.dataTransfer.setData("text/plain", item.id)
                       setDraggingId(item.id)
@@ -139,7 +95,7 @@ function App() {
                       padding: 10,
                       borderRadius: 10,
                       border: isSelected ? '2px solid rgba(25,118,210,0.8)' : '1px solid rgba(0,0,0,0.08)',
-                      background: isPinned ? 'rgba(0,0,0,0.03)' : '#fff',
+                      background: '#fff',
                       cursor: 'pointer',
                     }}
                   >
@@ -160,14 +116,15 @@ function App() {
                         borderRadius: 8,
                         padding: '6px 8px',
                         cursor: 'pointer',
-                        background: isPinned ? 'rgba(255,214,0,0.25)' : 'rgba(0,0,0,0.05)'
+                        background: 'rgba(220,53,69,0.12)',
+                        color: '#b21f2d'
                       }}
                       onClick={(e) => {
                         e.stopPropagation()
-                        togglePin(item.id)
+                        removeItem(item.id)
                       }}
                     >
-                      {isPinned ? '고정됨' : '고정'}
+                      삭제
                     </button>
                   </div>
                 )
@@ -178,14 +135,12 @@ function App() {
                   border: '1px dashed rgba(0,0,0,0.2)',
                   borderRadius: 10,
                   padding: '10px 12px',
-                  cursor: canAddDraft ? 'pointer' : 'not-allowed',
-                  opacity: canAddDraft ? 1 : 0.5,
+                  cursor: 'pointer',
                   background: '#fff'
                 }}
-                onClick={handleAddFromDraft}
-                disabled={!canAddDraft}
+                onClick={handleResetDraft}
               >
-                + 추가
+                선택 초기화
               </button>
             </div>
           </div>

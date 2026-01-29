@@ -11,6 +11,7 @@ type Props = {
     selectedItem?: PlayerItem | null;
     onDraftChange?: (draft: PlayerDraft) => void;
     onAddItem?: (item: PlayerItem) => void;
+    resetDraftToken?: number;
 };
 
 const SAMPLE_VIDEO =
@@ -94,6 +95,7 @@ export default function YouTubeFilmstripPlayer_Final({
     selectedItem,
     onDraftChange,
     onAddItem,
+    resetDraftToken,
 }: Props) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const barRef = useRef<HTMLDivElement | null>(null);
@@ -353,6 +355,19 @@ export default function YouTubeFilmstripPlayer_Final({
             pendingSelectedItemRef.current = null;
         });
     }, [duration, applySelectedItem]);
+
+    useEffect(() => {
+        if (resetDraftToken == null) return;
+        queueMicrotask(() => {
+            setSelectedThumbnailTime(null);
+            setSavedRange(null);
+            setRangeMode(false);
+            setRangePlayActive(false);
+            setRangeStart(0);
+            setRangeEnd(5);
+            setRangeEditBase(null);
+        });
+    }, [resetDraftToken]);
 
     useEffect(() => {
         if (!speedMenuOpen) return;
@@ -760,80 +775,10 @@ export default function YouTubeFilmstripPlayer_Final({
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
 
-            <div style={{
-                color: 'black'
-            }}>
-                <button
-                    style={{
-                        ...styles.btn,
-                        color: 'black',
-                    }}
-                    onClick={() => (filmOpen ? closeFilmstrip() : openFilmstrip())}
-                >
-                    {filmOpen ? "썸네일 닫기" : "썸네일 선택"}
-                </button>
-                <button
-                    style={{
-                        ...styles.btn,
-                        ...(rangeMode && !isRangeDirty ? styles.btnDisabled : null),
-                        color: 'black',
-                    }}
-                    onClick={onRangeButtonClick}
-                    disabled={rangeMode && !isRangeDirty}
-                >
-                    {rangeMode ? "구간 저장" : "구간 선택"}
-                </button>
-                {rangeMode && (
-                    <button style={{
-                        ...styles.btn,
-                        color: 'black',
-                    }} onClick={onRangeCancelClick}>
-                        구간 선택 취소
-                    </button>
-                )}
-                {selectedThumbnailTime != null && (
-                    <div style={styles.selectedThumbWrap}>
-                        <img
-                            src={getThumbnail(selectedThumbnailTime)}
-                            alt=""
-                            draggable={false}
-                            style={styles.selectedThumbImg}
-                        />
-                        <div style={styles.selectedThumbTime}>{formatTime(selectedThumbnailTime)}</div>
-                    </div>
-                )}
-                {savedRange && (
-                    <div style={styles.savedRangeInfo}>
-                        구간: {formatTime(savedRange.start)} ~ {formatTime(savedRange.end)}
-                    </div>
-                )}
-                <button
-                    style={{
-                        ...styles.btn,
-                        ...(rangePlayActive || !activeRange ? styles.btnDisabled : null),
-                        color: 'black',
-                    }}
-                    onClick={onRangePlayClick}
-                    disabled={rangePlayActive || !activeRange}
-                >
-                    구간재생
-                </button>
-                <button
-                    style={{
-                        ...styles.btn,
-                        ...(!rangePlayActive ? styles.btnDisabled : null),
-                        color: 'black',
-                    }}
-                    onClick={onRangePlayCancelClick}
-                    disabled={!rangePlayActive}
-                >
-                    구간재생 취소
-                </button>
-            </div>
+
             <div style={styles.addSection}>
                 <div style={styles.addStep}>
                     <div style={styles.addStepTitle}>Step 1. 구간 선택</div>
@@ -841,6 +786,54 @@ export default function YouTubeFilmstripPlayer_Final({
                         {addEnd > addStart
                             ? `${formatTime(addStart)} ~ ${formatTime(addEnd)}`
                             : "구간을 선택하세요"}
+                    </div>
+                    <div style={{
+                        color: 'black'
+                    }}>
+
+                        <button
+                            style={{
+                                ...styles.btn,
+                                ...(rangeMode && !isRangeDirty ? styles.btnDisabled : null),
+                                color: 'black',
+                            }}
+                            onClick={onRangeButtonClick}
+                            disabled={rangeMode && !isRangeDirty}
+                        >
+                            {rangeMode ? "구간 저장" : "구간 선택"}
+                        </button>
+                        {rangeMode && (
+                            <button style={{
+                                ...styles.btn,
+                                color: 'black',
+                            }} onClick={onRangeCancelClick}>
+                                구간 선택 취소
+                            </button>
+                        )}
+
+
+                        <button
+                            style={{
+                                ...styles.btn,
+                                ...(rangePlayActive || !activeRange ? styles.btnDisabled : null),
+                                color: 'black',
+                            }}
+                            onClick={onRangePlayClick}
+                            disabled={rangePlayActive || !activeRange}
+                        >
+                            구간재생
+                        </button>
+                        <button
+                            style={{
+                                ...styles.btn,
+                                ...(!rangePlayActive ? styles.btnDisabled : null),
+                                color: 'black',
+                            }}
+                            onClick={onRangePlayCancelClick}
+                            disabled={!rangePlayActive}
+                        >
+                            구간재생 취소
+                        </button>
                     </div>
                 </div>
                 <div style={styles.addStep}>
@@ -859,6 +852,15 @@ export default function YouTubeFilmstripPlayer_Final({
                         ) : (
                             "썸네일을 선택하세요"
                         )}
+                        <button
+                            style={{
+                                ...styles.btn,
+                                color: 'black',
+                            }}
+                            onClick={() => (filmOpen ? closeFilmstrip() : openFilmstrip())}
+                        >
+                            {filmOpen ? "썸네일 닫기" : "썸네일 선택"}
+                        </button>
                     </div>
                 </div>
                 <div style={styles.addActions}>
