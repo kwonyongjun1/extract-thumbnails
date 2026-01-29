@@ -3,7 +3,6 @@ import type { PlayerItem } from '../../../entities/thumbnail/model/types'
 import type { VideoPlayerFeatureProps } from './types'
 import { clamp, formatTime } from '../../../shared/lib/player/utils'
 
-// 샘플용(서버 없이) 가짜 썸네일 생성
 function makeFakeThumbnailDataUrl(timeSec: number, w = 160, h = 90) {
   const canvas = document.createElement('canvas')
   canvas.width = w
@@ -27,7 +26,8 @@ function makeFakeThumbnailDataUrl(timeSec: number, w = 160, h = 90) {
   }
 
   ctx.fillStyle = 'rgba(255,255,255,0.95)'
-  ctx.font = '700 18px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto'
+  ctx.font =
+    '700 18px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(formatTime(timeSec), w / 2, h / 2)
@@ -53,38 +53,39 @@ export function useFilmstripPlayer({
 }: VideoPlayerFeatureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const barRef = useRef<HTMLDivElement | null>(null)
-  const speedMenuRef = useRef<HTMLDivElement | null>(null)
 
   const [duration, setDuration] = useState(0)
   const [current, setCurrent] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
-  const [speedMenuOpen, setSpeedMenuOpen] = useState(false)
 
   const lastAppliedItemIdRef = useRef<string | null>(null)
   const pendingSelectedItemRef = useRef<PlayerItem | null>(null)
 
-  // filmstrip 모드(버튼/시크바 클릭으로만)
   const [filmOpen, setFilmOpen] = useState(false)
 
-  // filmstrip 기준 시간(= 드래그/시크바로 이동)
   const [previewTime, setPreviewTime] = useState(0)
   const previewTimeRef = useRef(0)
   useEffect(() => {
     previewTimeRef.current = previewTime
   }, [previewTime])
 
-  const [selectedThumbnailTime, setSelectedThumbnailTime] = useState<number | null>(null)
+  const [selectedThumbnailTime, setSelectedThumbnailTime] = useState<
+    number | null
+  >(null)
   const [rangeMode, setRangeMode] = useState(false)
   const [rangeStart, setRangeStart] = useState(0)
   const [rangeEnd, setRangeEnd] = useState(0)
-  const [savedRange, setSavedRange] = useState<{ start: number; end: number } | null>(null)
+  const [savedRange, setSavedRange] = useState<{
+    start: number
+    end: number
+  } | null>(null)
   const [rangePlayActive, setRangePlayActive] = useState(false)
-  const [rangeEditBase, setRangeEditBase] = useState<{ start: number; end: number } | null>(
-    null,
-  )
+  const [rangeEditBase, setRangeEditBase] = useState<{
+    start: number
+    end: number
+  } | null>(null)
 
-  // ===== Filmstrip UI/드래그 =====
   const filmCount = 9
   const filmStepSec = 1
   const thumbW = 120
@@ -112,11 +113,6 @@ export function useFilmstripPlayer({
 
   const barDraggingRef = useRef(false)
   const rangeDraggingRef = useRef<'start' | 'end' | null>(null)
-
-  const progressPct = useMemo(() => {
-    if (!duration) return 0
-    return clamp((current / duration) * 100, 0, 100)
-  }, [current, duration])
 
   const activeRange = useMemo(() => {
     if (!savedRange) return null
@@ -192,7 +188,10 @@ export function useFilmstripPlayer({
 
   const applySelectedItem = useCallback(
     (item: PlayerItem) => {
-      const maxDuration = Math.max(0, (duration || videoRef.current?.duration || 0) - 0.001)
+      const maxDuration = Math.max(
+        0,
+        (duration || videoRef.current?.duration || 0) - 0.001,
+      )
       if (maxDuration <= 0) {
         pendingSelectedItemRef.current = item
         return
@@ -215,7 +214,9 @@ export function useFilmstripPlayer({
 
   function openFilmstrip(atTime?: number) {
     const t = clamp(
-      typeof atTime === 'number' ? atTime : (videoRef.current?.currentTime ?? current),
+      typeof atTime === 'number'
+        ? atTime
+        : videoRef.current?.currentTime ?? current,
       0,
       Math.max(0, duration - 0.001),
     )
@@ -230,6 +231,11 @@ export function useFilmstripPlayer({
     setFilmOpen(false)
     filmAccumDxRef.current = 0
     setFilmTranslatePx(0)
+  }
+
+  function onToggleFilmstrip() {
+    if (filmOpen) closeFilmstrip()
+    else openFilmstrip()
   }
 
   function onPlayPause() {
@@ -323,26 +329,6 @@ export function useFilmstripPlayer({
     })
   }, [resetDraftToken])
 
-  useEffect(() => {
-    if (!speedMenuOpen) return
-    function onDocMouseDown(e: MouseEvent) {
-      const target = e.target as Node | null
-      if (!speedMenuRef.current || !target) return
-      if (!speedMenuRef.current.contains(target)) {
-        setSpeedMenuOpen(false)
-      }
-    }
-    function onDocKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setSpeedMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onDocMouseDown)
-    document.addEventListener('keydown', onDocKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onDocMouseDown)
-      document.removeEventListener('keydown', onDocKeyDown)
-    }
-  }, [speedMenuOpen])
-
   const playbackRates = useMemo(
     () => [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4],
     [],
@@ -357,7 +343,8 @@ export function useFilmstripPlayer({
     return getThumbnail(selectedThumbnailTime)
   }, [selectedThumbnailTime, getThumbnail])
 
-  const canAdd = selectedThumbnailTime != null && addEnd > addStart && !!draftThumbnailUrl
+  const canAdd =
+    selectedThumbnailTime != null && addEnd > addStart && !!draftThumbnailUrl
 
   useEffect(() => {
     if (!onDraftChange) return
@@ -367,10 +354,22 @@ export function useFilmstripPlayer({
       thumbnailTime: selectedThumbnailTime,
       thumbnailUrl: draftThumbnailUrl,
     })
-  }, [onDraftChange, addStart, addEnd, selectedThumbnailTime, draftThumbnailUrl])
+  }, [
+    onDraftChange,
+    addStart,
+    addEnd,
+    selectedThumbnailTime,
+    draftThumbnailUrl,
+  ])
 
   function onAddCurrentSelection() {
-    if (!onAddItem || !canAdd || selectedThumbnailTime == null || !draftThumbnailUrl) return
+    if (
+      !onAddItem ||
+      !canAdd ||
+      selectedThumbnailTime == null ||
+      !draftThumbnailUrl
+    )
+      return
     onAddItem({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       thumbnailUrl: draftThumbnailUrl,
@@ -418,7 +417,6 @@ export function useFilmstripPlayer({
     const parsed = raw != null ? Number(raw) : NaN
     filmDownTimeRef.current = Number.isFinite(parsed) ? parsed : null
     setTranslateRaf(0)
-
     ;(e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId)
   }
 
@@ -542,16 +540,6 @@ export function useFilmstripPlayer({
     setRangePlayActive(false)
   }
 
-  const rangeStartPct = useMemo(() => {
-    if (!duration) return 0
-    return clamp((rangeStart / duration) * 100, 0, 100)
-  }, [rangeStart, duration])
-
-  const rangeEndPct = useMemo(() => {
-    if (!duration) return 0
-    return clamp((rangeEnd / duration) * 100, 0, 100)
-  }, [rangeEnd, duration])
-
   const isRangeDirty =
     rangeMode && rangeEditBase
       ? rangeEditBase.start !== rangeStart || rangeEditBase.end !== rangeEnd
@@ -576,62 +564,72 @@ export function useFilmstripPlayer({
 
   return {
     videoProps: {
-      videoRef,
-      barRef,
-      speedMenuRef,
-      videoSrc,
-      poster,
-      duration,
-      current,
-      isPlaying,
-      playbackRate,
-      speedMenuOpen,
-      playbackRates,
-      filmOpen,
-      previewTime,
-      filmTranslatePx,
-      filmTimes,
-      getThumbnailUrl: getThumbnail,
-      progressPct,
-      rangeStartPct,
-      rangeEndPct,
-      rangeMode,
-      rangeStart,
-      rangeEnd,
-      shouldReset,
-      onPlayPause,
-      onPlayButtonClick,
-      onFilmPointerDown,
-      onFilmPointerMove,
-      onFilmPointerUp,
-      onBarClick,
-      onBarPointerDown,
-      onBarPointerMove,
-      onBarPointerUp,
-      setPlaybackRateSafe,
-      setSpeedMenuOpen,
-      thumbW,
-      centerW,
+      refs: {
+        videoRef,
+        barRef,
+      },
+      playerState: {
+        videoSrc,
+        poster,
+        duration,
+        current,
+        isPlaying,
+        shouldReset,
+      },
+      playbackState: {
+        playbackRate,
+        playbackRates,
+        setPlaybackRateSafe,
+      },
+      filmState: {
+        filmOpen,
+        previewTime,
+        filmTranslatePx,
+        filmTimes,
+        thumbW,
+        centerW,
+      },
+      rangeState: {
+        rangeMode,
+        rangeStart,
+        rangeEnd,
+      },
+      actions: {
+        onPlayPause,
+        onPlayButtonClick,
+        onFilmPointerDown,
+        onFilmPointerMove,
+        onFilmPointerUp,
+        onBarClick,
+        onBarPointerDown,
+        onBarPointerMove,
+        onBarPointerUp,
+      },
+      helpers: {
+        getThumbnailUrl: getThumbnail,
+      },
     },
     stepProps: {
-      addStart,
-      addEnd,
-      selectedThumbnailTime,
-      draftThumbnailUrl,
-      canAdd,
-      rangeMode,
-      isRangeDirty,
-      rangePlayActive,
-      activeRange,
-      filmOpen,
-      onRangeButtonClick,
-      onRangeCancelClick,
-      onRangePlayClick,
-      onRangePlayCancelClick,
-      openFilmstrip,
-      closeFilmstrip,
-      onAddCurrentSelection,
+      addRange,
+      rangeState: {
+        rangeMode,
+        isRangeDirty,
+        rangePlayActive,
+        activeRange,
+      },
+      thumbState: {
+        selectedThumbnailTime,
+        draftThumbnailUrl,
+        filmOpen,
+      },
+      actions: {
+        onRangeButtonClick,
+        onRangeCancelClick,
+        onRangePlayClick,
+        onRangePlayCancelClick,
+        onToggleFilmstrip,
+        onAddCurrentSelection,
+      },
     },
   }
 }
-

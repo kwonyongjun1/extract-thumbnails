@@ -30,17 +30,9 @@ function App() {
   }
 
   return (
-    <div style={{ width: '100%', height: '100vh' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          padding: '20px',
-          gap: '20px',
-          height: '100%',
-        }}
-      >
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="w-100 min-vh-100">
+      <div className="d-flex justify-content-center p-3 gap-3 h-100 flex-wrap">
+        <div className="d-flex flex-column flex-grow-1">
           <VideoPlayerWidget
             selectedItem={selectedItem}
             onAddItem={handleAddItem}
