@@ -91,6 +91,13 @@ export default function YouTubeFilmstripPlayer_Final({
         previewTimeRef.current = previewTime;
     }, [previewTime]);
     const [selectedThumbnailTime, setSelectedThumbnailTime] = useState<number | null>(null);
+    const [rangeMode, setRangeMode] = useState(false);
+    const [rangeStart, setRangeStart] = useState(0);
+    const [rangeEnd, setRangeEnd] = useState(0);
+    const [savedRange, setSavedRange] = useState<{ start: number; end: number } | null>(null);
+    const [rangeEditBase, setRangeEditBase] = useState<{ start: number; end: number } | null>(
+        null
+    );
 
     // ===== Filmstrip UI/드래그(유튜브 느낌) =====
     const filmCount = 9; // 보이는 썸네일 개수
@@ -122,6 +129,7 @@ export default function YouTubeFilmstripPlayer_Final({
 
     // ===== Seekbar 드래그 =====
     const barDraggingRef = useRef(false);
+    const rangeDraggingRef = useRef<"start" | "end" | null>(null);
 
     const progressPct = useMemo(() => {
         if (!duration) return 0;
@@ -145,6 +153,16 @@ export default function YouTubeFilmstripPlayer_Final({
         return thumbnailUrlForTime
             ? thumbnailUrlForTime(bucket)
             : makeFakeThumbnailDataUrl(bucket);
+    }
+
+    function setRangeStartSafe(timeSec: number) {
+        const t = clamp(timeSec, 0, Math.max(0, duration - 0.001));
+        setRangeStart(Math.min(t, rangeEnd));
+    }
+
+    function setRangeEndSafe(timeSec: number) {
+        const t = clamp(timeSec, 0, Math.max(0, duration - 0.001));
+        setRangeEnd(Math.max(t, rangeStart));
     }
 
     function seekTo(timeSec: number) {
@@ -209,6 +227,10 @@ export default function YouTubeFilmstripPlayer_Final({
             setDuration(v.duration || 0);
             setCurrent(v.currentTime || 0);
             setPreviewTime(v.currentTime || 0);
+            if (v.duration && rangeEnd === 0) {
+                setRangeStart(0);
+                setRangeEnd(Math.min(5, v.duration));
+            }
         };
         const onTime = () => {
             const t = v.currentTime || 0;
@@ -230,7 +252,7 @@ export default function YouTubeFilmstripPlayer_Final({
             v.removeEventListener("play", onPlay);
             v.removeEventListener("pause", onPause);
         };
-    }, [filmOpen]);
+    }, [filmOpen, rangeEnd]);
 
     // ===== filmstrip 썸네일 리스트(현재 previewTime 기준) =====
     const filmTimes = useMemo(() => {
@@ -321,12 +343,24 @@ export default function YouTubeFilmstripPlayer_Final({
     // ===== Seekbar 동작(hover 없음) =====
     function onBarClick(e: React.MouseEvent) {
         if (!duration) return;
+        if (rangeMode) return;
         const t = timeFromClientX(e.clientX);
         seekTo(t);
     }
 
     function onBarPointerDown(e: React.PointerEvent) {
         if (!duration) return;
+        if (rangeMode) {
+            const t = timeFromClientX(e.clientX);
+            const distToStart = Math.abs(t - rangeStart);
+            const distToEnd = Math.abs(t - rangeEnd);
+            const handle = distToStart <= distToEnd ? "start" : "end";
+            rangeDraggingRef.current = handle;
+            if (handle === "start") setRangeStartSafe(t);
+            else setRangeEndSafe(t);
+            (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+            return;
+        }
         barDraggingRef.current = true;
         (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
 
@@ -336,6 +370,13 @@ export default function YouTubeFilmstripPlayer_Final({
     }
 
     function onBarPointerMove(e: React.PointerEvent) {
+        if (rangeMode) {
+            if (!rangeDraggingRef.current) return;
+            const t = timeFromClientX(e.clientX);
+            if (rangeDraggingRef.current === "start") setRangeStartSafe(t);
+            else setRangeEndSafe(t);
+            return;
+        }
         if (!barDraggingRef.current) return;
         const t = timeFromClientX(e.clientX);
         setPreviewTime(t);
@@ -343,8 +384,49 @@ export default function YouTubeFilmstripPlayer_Final({
     }
 
     function onBarPointerUp() {
+        if (rangeMode) {
+            rangeDraggingRef.current = null;
+            return;
+        }
         barDraggingRef.current = false;
     }
+
+    function onRangeButtonClick() {
+        if (!rangeMode) {
+            setRangeEditBase({ start: rangeStart, end: rangeEnd });
+            setRangeMode(true);
+            return;
+        }
+        if (!isRangeDirty) return;
+        const start = Math.min(rangeStart, rangeEnd);
+        const end = Math.max(rangeStart, rangeEnd);
+        setSavedRange({ start, end });
+        setRangeMode(false);
+        rangeDraggingRef.current = null;
+    }
+
+    function onRangeCancelClick() {
+        if (!rangeMode || !rangeEditBase) return;
+        setRangeStart(rangeEditBase.start);
+        setRangeEnd(rangeEditBase.end);
+        setRangeMode(false);
+        rangeDraggingRef.current = null;
+    }
+
+    const rangeStartPct = useMemo(() => {
+        if (!duration) return 0;
+        return clamp((rangeStart / duration) * 100, 0, 100);
+    }, [rangeStart, duration]);
+
+    const rangeEndPct = useMemo(() => {
+        if (!duration) return 0;
+        return clamp((rangeEnd / duration) * 100, 0, 100);
+    }, [rangeEnd, duration]);
+
+    const isRangeDirty =
+        rangeMode && rangeEditBase
+            ? rangeEditBase.start !== rangeStart || rangeEditBase.end !== rangeEnd
+            : false;
 
     return (
         <div style={styles.shell}>
@@ -406,6 +488,40 @@ export default function YouTubeFilmstripPlayer_Final({
                         onPointerUp={onBarPointerUp}
                     >
                         <div style={styles.track} />
+                        <div
+                            style={{
+                                ...styles.rangeMarker,
+                                left: `calc(${rangeStartPct}% - 1px)`,
+                                opacity: rangeMode ? 1 : 0.65,
+                            }}
+                        />
+                        <div
+                            style={{
+                                ...styles.rangeMarker,
+                                left: `calc(${rangeEndPct}% - 1px)`,
+                                opacity: rangeMode ? 1 : 0.65,
+                            }}
+                        />
+                        {rangeMode && (
+                            <div
+                                style={{
+                                    ...styles.rangeLabel,
+                                    left: `calc(${rangeStartPct}% - 14px)`,
+                                }}
+                            >
+                                {formatTime(rangeStart)}
+                            </div>
+                        )}
+                        {rangeMode && (
+                            <div
+                                style={{
+                                    ...styles.rangeLabel,
+                                    left: `calc(${rangeEndPct}% - 14px)`,
+                                }}
+                            >
+                                {formatTime(rangeEnd)}
+                            </div>
+                        )}
                         <div style={{ ...styles.fill, width: `${progressPct}%` }} />
                         <div style={{ ...styles.knob, left: `calc(${progressPct}% - 6px)` }} />
                     </div>
@@ -417,6 +533,21 @@ export default function YouTubeFilmstripPlayer_Final({
                         >
                             {filmOpen ? "썸네일 닫기" : "썸네일 선택"}
                         </button>
+                        <button
+                            style={{
+                                ...styles.btn,
+                                ...(rangeMode && !isRangeDirty ? styles.btnDisabled : null),
+                            }}
+                            onClick={onRangeButtonClick}
+                            disabled={rangeMode && !isRangeDirty}
+                        >
+                            {rangeMode ? "구간 저장" : "구간 선택"}
+                        </button>
+                        {rangeMode && (
+                            <button style={styles.btn} onClick={onRangeCancelClick}>
+                                구간 선택 취소
+                            </button>
+                        )}
 
                         <div style={styles.timeText}>
                             {formatTime(current)} / {formatTime(duration)}
@@ -431,17 +562,28 @@ export default function YouTubeFilmstripPlayer_Final({
                 </div>
             </div>
 
-            {selectedThumbnailTime != null && (
-                <div style={styles.selectedThumbWrap}>
-                    <img
-                        src={getThumbnail(selectedThumbnailTime)}
-                        alt=""
-                        draggable={false}
-                        style={styles.selectedThumbImg}
-                    />
-                    <div style={styles.selectedThumbTime}>{formatTime(selectedThumbnailTime)}</div>
-                </div>
-            )}
+            <div style={{
+                color: 'black'
+            }}>
+                {selectedThumbnailTime != null && (
+                    <div style={styles.selectedThumbWrap}>
+                        <img
+                            src={getThumbnail(selectedThumbnailTime)}
+                            alt=""
+                            draggable={false}
+                            style={styles.selectedThumbImg}
+                        />
+                        <div style={styles.selectedThumbTime}>{formatTime(selectedThumbnailTime)}</div>
+                    </div>
+                )}
+                {savedRange && (
+                    <div style={styles.savedRangeInfo}>
+                        구간: {formatTime(savedRange.start)} ~ {formatTime(savedRange.end)}
+                    </div>
+                )}
+                <button>구간재생</button>
+                <button>구간재생 취소</button>
+            </div>
         </div>
     );
 }
@@ -492,6 +634,10 @@ const styles: Record<string, React.CSSProperties> = {
         padding: "8px 10px",
         cursor: "pointer",
         fontSize: 13,
+    },
+    btnDisabled: {
+        opacity: 0.5,
+        cursor: "not-allowed",
     },
     timeText: {
         fontSize: 12,
@@ -563,6 +709,27 @@ const styles: Record<string, React.CSSProperties> = {
         borderRadius: 999,
         background: "rgba(255,255,255,0.25)",
     },
+    rangeMarker: {
+        position: "absolute",
+        top: -10,
+        width: 2,
+        height: 20,
+        background: "rgba(255,214,0,0.95)",
+        boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
+        borderRadius: 2,
+        pointerEvents: "none",
+    },
+    rangeLabel: {
+        position: "absolute",
+        top: -28,
+        fontSize: 11,
+        padding: "2px 6px",
+        borderRadius: 6,
+        background: "rgba(0,0,0,0.7)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+    },
     fill: {
         position: "absolute",
         left: 0,
@@ -609,9 +776,15 @@ const styles: Record<string, React.CSSProperties> = {
         border: "1px solid rgba(255,255,255,0.10)",
     },
     selectedThumbTime: {
+        color: 'white',
         fontSize: 13,
         opacity: 0.9,
         userSelect: "none",
+    },
+    savedRangeInfo: {
+        marginTop: 8,
+        fontSize: 13,
+        opacity: 0.9,
     },
 };
 
