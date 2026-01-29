@@ -95,6 +95,7 @@ export default function YouTubeFilmstripPlayer_Final({
     const [rangeStart, setRangeStart] = useState(0);
     const [rangeEnd, setRangeEnd] = useState(0);
     const [savedRange, setSavedRange] = useState<{ start: number; end: number } | null>(null);
+    const [rangePlayActive, setRangePlayActive] = useState(false);
     const [rangeEditBase, setRangeEditBase] = useState<{ start: number; end: number } | null>(
         null
     );
@@ -136,6 +137,13 @@ export default function YouTubeFilmstripPlayer_Final({
         return clamp((current / duration) * 100, 0, 100);
     }, [current, duration]);
 
+    const activeRange = useMemo(() => {
+        if (!savedRange) return null;
+        const start = Math.min(savedRange.start, savedRange.end);
+        const end = Math.max(savedRange.start, savedRange.end);
+        return { start, end };
+    }, [savedRange]);
+
     function getBarRect() {
         const el = barRef.current;
         return el ? el.getBoundingClientRect() : null;
@@ -146,6 +154,11 @@ export default function YouTubeFilmstripPlayer_Final({
         if (!rect || duration <= 0) return 0;
         const x = clamp(clientX - rect.left, 0, rect.width);
         return (x / rect.width) * duration;
+    }
+
+    function clampToActiveRange(timeSec: number) {
+        if (!rangePlayActive || !activeRange) return timeSec;
+        return clamp(timeSec, activeRange.start, activeRange.end);
     }
 
     function getThumbnail(timeSec: number) {
@@ -233,7 +246,17 @@ export default function YouTubeFilmstripPlayer_Final({
             }
         };
         const onTime = () => {
-            const t = v.currentTime || 0;
+            let t = v.currentTime || 0;
+            if (rangePlayActive && activeRange) {
+                if (t < activeRange.start) {
+                    t = activeRange.start;
+                    v.currentTime = activeRange.start;
+                } else if (t >= activeRange.end) {
+                    t = activeRange.end;
+                    v.currentTime = activeRange.end;
+                    v.pause();
+                }
+            }
             setCurrent(t);
             // filmstrip이 닫혀있을 때만 previewTime이 재생시간을 따라감
             if (!filmOpen) setPreviewTime(t);
@@ -252,7 +275,7 @@ export default function YouTubeFilmstripPlayer_Final({
             v.removeEventListener("play", onPlay);
             v.removeEventListener("pause", onPause);
         };
-    }, [filmOpen, rangeEnd]);
+    }, [filmOpen, rangeEnd, rangePlayActive, activeRange]);
 
     // ===== filmstrip 썸네일 리스트(현재 previewTime 기준) =====
     const filmTimes = useMemo(() => {
@@ -344,7 +367,7 @@ export default function YouTubeFilmstripPlayer_Final({
     function onBarClick(e: React.MouseEvent) {
         if (!duration) return;
         if (rangeMode) return;
-        const t = timeFromClientX(e.clientX);
+        const t = clampToActiveRange(timeFromClientX(e.clientX));
         seekTo(t);
     }
 
@@ -364,7 +387,7 @@ export default function YouTubeFilmstripPlayer_Final({
         barDraggingRef.current = true;
         (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
 
-        const t = timeFromClientX(e.clientX);
+        const t = clampToActiveRange(timeFromClientX(e.clientX));
         setPreviewTime(t);
         seekTo(t);
     }
@@ -378,7 +401,7 @@ export default function YouTubeFilmstripPlayer_Final({
             return;
         }
         if (!barDraggingRef.current) return;
-        const t = timeFromClientX(e.clientX);
+        const t = clampToActiveRange(timeFromClientX(e.clientX));
         setPreviewTime(t);
         seekTo(t);
     }
@@ -395,6 +418,7 @@ export default function YouTubeFilmstripPlayer_Final({
         if (!rangeMode) {
             setRangeEditBase({ start: rangeStart, end: rangeEnd });
             setRangeMode(true);
+            setRangePlayActive(false);
             return;
         }
         if (!isRangeDirty) return;
@@ -413,6 +437,19 @@ export default function YouTubeFilmstripPlayer_Final({
         rangeDraggingRef.current = null;
     }
 
+    function onRangePlayClick() {
+        if (!activeRange) return;
+        setRangePlayActive(true);
+        setRangeMode(false);
+        rangeDraggingRef.current = null;
+        seekTo(activeRange.start);
+        playVideo();
+    }
+
+    function onRangePlayCancelClick() {
+        setRangePlayActive(false);
+    }
+
     const rangeStartPct = useMemo(() => {
         if (!duration) return 0;
         return clamp((rangeStart / duration) * 100, 0, 100);
@@ -427,6 +464,23 @@ export default function YouTubeFilmstripPlayer_Final({
         rangeMode && rangeEditBase
             ? rangeEditBase.start !== rangeStart || rangeEditBase.end !== rangeEnd
             : false;
+
+    const shouldReset = useMemo(() => {
+        if (rangePlayActive && activeRange) {
+            return current >= activeRange.end - 0.001;
+        }
+        return duration > 0 && current >= duration - 0.001;
+    }, [rangePlayActive, activeRange, current, duration]);
+
+    function onPlayButtonClick() {
+        if (shouldReset) {
+            const resetTo = rangePlayActive && activeRange ? activeRange.start : 0;
+            pauseVideo();
+            seekTo(resetTo);
+            return;
+        }
+        onPlayPause();
+    }
 
     return (
         <div style={styles.shell}>
@@ -555,8 +609,8 @@ export default function YouTubeFilmstripPlayer_Final({
 
                         <div style={{ flex: 1 }} />
 
-                        <button style={styles.btn} onClick={onPlayPause}>
-                            {isPlaying && !filmOpen ? "⏸" : "▶️"}
+                        <button style={styles.btn} onClick={onPlayButtonClick}>
+                            {shouldReset ? "초기화" : isPlaying && !filmOpen ? "⏸" : "▶️"}
                         </button>
                     </div>
                 </div>
@@ -581,8 +635,28 @@ export default function YouTubeFilmstripPlayer_Final({
                         구간: {formatTime(savedRange.start)} ~ {formatTime(savedRange.end)}
                     </div>
                 )}
-                <button>구간재생</button>
-                <button>구간재생 취소</button>
+                <button
+                    style={{
+                        ...styles.btn,
+                        ...(rangePlayActive || !activeRange ? styles.btnDisabled : null),
+                        color: 'black',
+                    }}
+                    onClick={onRangePlayClick}
+                    disabled={rangePlayActive || !activeRange}
+                >
+                    구간재생
+                </button>
+                <button
+                    style={{
+                        ...styles.btn,
+                        ...(!rangePlayActive ? styles.btnDisabled : null),
+                        color: 'black',
+                    }}
+                    onClick={onRangePlayCancelClick}
+                    disabled={!rangePlayActive}
+                >
+                    구간재생 취소
+                </button>
             </div>
         </div>
     );
